@@ -33,7 +33,7 @@ mkdir build
 cd build
 cmake ..
 make
-./doublyLinkedDb
+./televison
 ```
 
 ## Contributing
