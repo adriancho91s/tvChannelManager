@@ -36,7 +36,6 @@ struct tvChannel {
 
 
 
-
 // Function prototypes
 struct node *findNodeAtPosition(struct node **first, int position);
 void print(struct node **first, int order);
@@ -364,9 +363,6 @@ int comparteString(char string1[30], char string2[30]) {
  * @param number The number of the channel to find
  * @return struct node* The node found in the linked list
  * */
-// Take into account that the linked list is ordered by number
-// and it's a circular doubly linked list, so the first node is the head and the start point
-// the user can search by name or number
 struct tvChannel *searchChannel(struct tvChannel **first, char name[30], int number) {
     struct tvChannel *temp = *first;
     if (temp == NULL) {
@@ -407,16 +403,16 @@ void delay() {
 
 
 /*
- * Find a node at a given position in the linked list
- * @param position The position of the node to find
- * @return struct node* The node at the given position
+ * Find a channel at a given position in the guide
+ * @param position The position of the channel to find
+ * @return struct tvChannel* The channel at the given position
  * */
-struct node *findNodeAtPosition(struct node **first, int position) {
+struct tvChannel *findChannelAtPosition(struct tvChannel **first, int position) {
     if (position < 0) {
         printf("Invalid position\n");
         return NULL;
     }
-    struct node *temp = *first;
+    struct tvChannel *temp = *first;
     int i = 1;
     while (temp != NULL && i < position) {
         temp = temp->next;
