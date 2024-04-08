@@ -4,6 +4,7 @@
 #include <termios.h>
 #include <unistd.h>
 
+//Constants
 #define UP 119
 #define RIGHT 100
 #define LEFT 97
@@ -11,25 +12,35 @@
 #define ESC 27
 #define ENTER 10
 
-//We´re going to convert this program to a channel manager
-// it must have the following fields:
-// Tv Channel Name, number, and it must have to order the channels by number
-// the list of channels will be a circular doubly linked list with a pointer to the first channel
-// each channel must have a list of programs that will be a doubly linked list
-// with the following fields: time slot, program name, duration, and a pointer to the next program
-
+/**
+ * Struct to represent a TV program
+ * @param prev The pointer to the previous program
+ * @param timeSlot The time slot of the program
+ * @param name The name of the program
+ * @param duration The duration of the program
+ * @param next The pointer to the next
+*/
 struct tvProgram {
     struct tvProgram *prev;
-    char timeSlot[30];
+    char timeSlot[30];//This have the following format: DD:HH:MM
+    char name[30];
+    int duration;
     struct tvProgram *next;
 };
 
-
+/**
+ * Struct to represent a TV channel
+ * @param prev The pointer to the previous channel
+ * @param name The name of the channel
+ * @param number The number of the channel
+ * @param firstProgram The pointer to the first program of the channel
+ * @param next The pointer to the next channel
+*/
 struct tvChannel {
     struct tvChannel *prev;
     char name[30];
     int number;
-    struct tvPrograms *firstProgram;
+    struct tvProgram *firstProgram;
     struct tvChannel *next;
 };
 
@@ -37,16 +48,22 @@ struct tvChannel {
 
 
 // Function prototypes
-struct node *findNodeAtPosition(struct node **first, int position);
-void print(struct node **first, int order);
+struct tvChannel *findChannelAtPosition(struct tvChannel **first, int position);
 void clearScreen();
 void delay();
-int counterChannels(struct node **first);
+int counterChannels(struct tvChannel **first);
 void addChannel(struct tvChannel **first, char name[30], int number);
+void addProgram(struct tvChannel **first, int channelNumber, char *timeSlot, char *name, int duration);
+void removeChannel(struct tvChannel **first, int number);
 void deleteProgramList(struct tvProgram **first);
 int getKey();
 void navigateChannels(struct tvChannel **first);
 struct tvChannel *searchChannel(struct tvChannel **first, char name[30], int number);
+void printAllChannels(struct tvChannel **first, int printPrograms);
+void printChannel(struct tvChannel *channel);
+void printChannelWithPrograms(struct tvChannel *channel);
+int verifyChannelNumber(struct tvChannel **first, int number);
+
 
 // Implementation
 int main() {
@@ -58,7 +75,7 @@ int main() {
             "Query a information of a channel",
             "Delete a channel from the list of channels",
             "Delete all programs from a channel",
-            "Show the channels guide",
+            "Enter to navigate mode",
             "Exit"
     };
     int numOptions = sizeof(options) / sizeof(options[0]);
@@ -82,6 +99,11 @@ int main() {
                 int number;
                 printf("Enter the number of the channel: ");
                 scanf("%d", &number);
+                if(verifyChannelNumber(&first, number)){
+                    printf("The channel number already exists\n");
+                    delay();
+                    break;
+                }
                 fgetc(stdin);
                 printf("Enter the name of the channel: ");
                 fgets(name, 30, stdin);
@@ -95,7 +117,29 @@ int main() {
                     delay();
                     break;
                 }
-                //Add a program to a channel
+                printf("You are going to add a program to a channel\n");
+                int channelNumber = 0;
+                printAllChannels(&first, 0);
+                printf("Enter the number of the channel: ");
+                scanf("%d", &channelNumber);
+                struct tvChannel *channel = searchChannel(&first, "", channelNumber);
+                if (channel == NULL) {
+                    printf("The channel was not found\n");
+                    delay();
+                    break;
+                }
+                char timeSlot[30];
+                char nameProgram[30];
+                int duration;
+                printf("Enter the time slot of the program: ");
+                scanf("%s", timeSlot);
+                printf("Enter the name of the program: ");
+                fgetc(stdin);
+                fgets(nameProgram, 30, stdin);
+                nameProgram[strcspn(nameProgram, "\n")] = 0;
+                printf("Enter the duration of the program: ");
+                scanf("%d", &duration);
+                addProgram(&first, channelNumber, timeSlot, nameProgram, duration);
                 break;
             case 3:
                 clearScreen();
@@ -104,18 +148,29 @@ int main() {
                     delay();
                     break;
                 }
-                //Query a information of a channel
-                struct node *temp = binarySearch(&first, name, surname);
-                if (temp == NULL) {
-                    printf("The contact was not found\n");
+                printf("You are going to query a channel\n");
+                int channelToQuery = 0;
+                printAllChannels(&first, 0);
+                printf("Enter the number of the channel: ");
+                scanf("%d", &channelToQuery);
+                struct tvChannel *channelQuery = searchChannel(&first, "", channelToQuery);
+                if (channelQuery == NULL) {
+                    printf("The channel was not found\n");
                     delay();
                     break;
                 }
-                editContact(&temp);
+                clearScreen();
+                printChannel(channelQuery);
+                printf("Do you want to see the programs of the channel? (y/n): ");
+                char answer;
+                scanf(" %c", &answer);
+                if (answer == 'y') {
+                    printChannelWithPrograms(channelQuery);
+                }
+
                 printf("Press enter to continue\n");
                 fgetc(stdin);
-                free(nameToFind);
-                free(surnameToFind);
+                fgetc(stdin);
                 break;
             case 4:
                 clearScreen();
@@ -124,10 +179,13 @@ int main() {
                     delay();
                     break;
                 }
-                int order = 0;
-                printf("Choose the order (0 ASC, 1 DESC): ");
-                scanf("%d", &order);
-                print(&first, order);
+                printf("\x1b[31m You are going to delete a channel \x1b[0m\n");
+                delay();
+                printAllChannels(&first, 0);
+                int channelNumberToDelete = 0;
+                printf("Enter the number of the channel to delete: ");
+                scanf("%d", &channelNumberToDelete);
+                removeChannel(&first, channelNumberToDelete);
                 printf("Press enter to continue\n");
                 fgetc(stdin);
                 fgetc(stdin);
@@ -139,13 +197,42 @@ int main() {
                     delay();
                     break;
                 }
-                print(&first, 0);
+                printf("\x1b[31m You are going to delete all programs from a channel \x1b[0m\n");
+                delay();
+                printAllChannels(&first, 1);
+                int channelProgramToDelete = 0;
+                printf("Enter the number of the channel to delete all programs: ");
+                scanf("%d", &channelProgramToDelete);
+                struct tvChannel *channelProgram = searchChannel(&first, "", channelProgramToDelete);
+                if (channelProgram == NULL) {
+                    printf("The channel was not found\n");
+                    delay();
+                    break;
+                }
+                deleteProgramList(&channelProgram->firstProgram);
                 printf("Press enter to continue\n");
                 fgetc(stdin);
                 fgetc(stdin);
                 break;
             case 6:
-                deleteList(&first);
+                clearScreen();
+                if (first == NULL) {
+                    printf("The linked list is empty\n");
+                    delay();
+                    break;
+                }
+                navigateChannels(&first);
+                printf("Press enter to continue\n");
+                fgetc(stdin);
+                break;
+            case 7:
+                printf("Exiting the program\n");
+                struct tvChannel *temp = first;
+                do {
+                    struct tvChannel *nextChannel = temp->next;
+                    removeChannel(&first, temp->number);
+                    temp = nextChannel;
+                } while (temp != first);
                 break;
             default:
                 printf("Invalid option\n");
@@ -156,7 +243,57 @@ int main() {
     return 0;
 }
 
-/*
+/**
+ * Add a program to a channel order by time slot
+ * @param channelNumber The number of the channel
+ * @param timeSlot The time slot of the program
+ * @param name The name of the program
+ * @param duration The duration of the program
+ * @return void
+ * */
+void addProgram(struct tvChannel **first, int channelNumber, char *timeSlot, char *name, int duration){
+    struct tvChannel *channel = searchChannel(first, "", channelNumber);
+    if (channel == NULL) {
+        printf("The channel was not found\n");
+        delay();
+        return;
+    }
+    struct tvProgram *newProgram = (struct tvProgram *) malloc(sizeof(struct tvProgram));
+    if (newProgram == NULL) {
+        printf("Memory allocation error\n");
+        return;
+    }
+    strcpy(newProgram->timeSlot, timeSlot);
+    strcpy(newProgram->name, name);
+    newProgram->duration = duration;
+    newProgram->next = NULL;
+    newProgram->prev = NULL;
+    if (channel->firstProgram == NULL) {
+        channel->firstProgram = newProgram;
+    } else {
+        struct tvProgram *temp = channel->firstProgram;
+        struct tvProgram *prev = NULL;
+        while (temp != NULL && strcmp(temp->timeSlot, timeSlot) < 0) {
+            prev = temp;
+            temp = temp->next;
+        }
+        if (temp == NULL) {
+            prev->next = newProgram;
+            newProgram->prev = prev;
+        } else if (prev == NULL) {
+            newProgram->next = temp;
+            temp->prev = newProgram;
+            channel->firstProgram = newProgram;
+        } else {
+            newProgram->next = temp;
+            newProgram->prev = prev;
+            prev->next = newProgram;
+            temp->prev = newProgram;
+        }
+    }
+}
+
+/**
  * Add a channel to the list of channels in the tv guide order by number
  * @param first The head pointer to the first channel
  * @param name The name of the channel
@@ -196,7 +333,7 @@ void addChannel(struct tvChannel **first, char name[30], int number) {
     }
 }
 
-/*
+/**
  * Delete tv program list
  * @return void
  * */
@@ -210,7 +347,7 @@ void deleteProgramList(struct tvProgram **first) {
     *first = NULL;
 }
 
-/*
+/**
  * Get the key pressed by the user
  * @return int The key pressed by the user
  * */
@@ -231,7 +368,7 @@ int getKey() {
 }
 
 
-/*
+/**
  * Navigate through the tv channels list in a circular way, but when user press left or right, it must go to programs list
  * @param head pointer to the first channel
  * @return void
@@ -243,6 +380,7 @@ void navigateChannels(struct tvChannel **first) {
         return;
     }
     struct tvChannel *current = *first;
+    struct tvProgram *currentProgram = NULL;
     int position = 1;
     int option = 0;
     printf("Press ESC to exit from navigate channels mode\n");
@@ -250,39 +388,56 @@ void navigateChannels(struct tvChannel **first) {
     fflush(stdin);
     do {
         clearScreen();
-        printf("╔═══════╦═══════════════╗\n");
-        printf("║ %-7s║%-15s║\n", "Number", "Channel name");
-        printf("╠════╬═══════════════║\n");
-        printf("║ %-7d║%-15s║\n", current->number, current->name);
-        printf("╚═══════╩═══════════════╝\n");
-
+        if (currentProgram != NULL) {
+            printf("╔═══════════╦══════════════════════════════╦══════════╗\n");
+            printf("║ %-10s║%-30s║%-10s║\n", "Time slot", "Program name", "Duration");
+            printf("╠═══════════╬══════════════════════════════╬══════════════════════════║\n");
+            printf("║ %-10s║%-30s║%-10d║\n", currentProgram->timeSlot, currentProgram->name, currentProgram->duration);
+            printf("╚═══════════╩══════════════════════════════╩══════════╝\n");
+        } else {
+            printf("╔════════╦════════════════════════════════╗\n");
+            printf("║ %-7s║%-30s║\n", "Number", "Channel name");
+            printf("╠════════╬════════════════════════════════║\n");
+            printf("║ %-7d║%-30s║\n", current->number, current->name);
+            printf("╚════════╩════════════════════════════════╝\n");
+        }
 
         printf("\x1b[31m Press ESC to exit from navigate channels mode \x1b[0m\n");
         printf("\x1b[33m Press W to go to the next channel \x1b[0m\n");
-        printf("\x1b[33m Press S to go to the previus channel \x1b[0m\n");
-        printf("\x1b[33m Press A to go to the previus program \x1b[0m\n");
+        printf("\x1b[33m Press S to go to the previous channel \x1b[0m\n");
+        printf("\x1b[33m Press A to go to the previous program \x1b[0m\n");
         printf("\x1b[33m Press D to go to the next program \x1b[0m\n");
         option = getKey();
         switch (option) {
             case UP:
-                if (current->next != NULL) {
-                    current = current->next;
-                    position++;
+                current = current->next != NULL ? current->next : *first;
+                currentProgram = NULL;
+                position++;
+                break;
+            case DOWN:
+                current = current->prev != NULL ? current->prev : *first;
+                currentProgram = NULL;
+                position--;
+                break;
+            case LEFT:
+                if (currentProgram != NULL && currentProgram->prev != NULL) {
+                    currentProgram = currentProgram->prev;
                 } else {
                     clearScreen();
-                    printf("This is the end of the database\n");
+                    printf("No more programs to the left\n");
+                    currentProgram = NULL;
                     delay();
                 }
                 break;
-            case LEFT:
-                //Navigate to the previus program
-            case DOWN:
-                if (current->prev != NULL) {
-                    current = current->prev;
-                    position--;
-                }
             case RIGHT:
-                //Navigate to the next program
+                if (currentProgram != NULL && currentProgram->next != NULL) {
+                    currentProgram = currentProgram->next;
+                } else {
+                    clearScreen();
+                    printf("End of programs\n");
+                    delay();
+                }
+                break;
             case ESC:
                 break;
             default:
@@ -291,77 +446,58 @@ void navigateChannels(struct tvChannel **first) {
                 delay();
                 break;
         }
+
     } while (option != ESC);
 }
 
 
-/*
- * Print the linked list
- * @param first The pointer to the pointer of the first node in the linked list
- * @param to print the doubly linked list ASC or DESC if 0 ASC, 1 DESC
+/**
+* Print channel's details in the console with their programs
+* @param channel The channel to print
+* @return void
+*/
+void printChannel(struct tvChannel *channel) {
+    printf("╔════════╦═══════════════╗\n");
+    printf("║ %-7s║%-15s║\n", "Number", "Channel name");
+    printf("╠════════╬═══════════════║\n");
+    printf("║ %-7d║%-15s║\n", channel->number, channel->name);
+    printf("╚════════╩═══════════════╝\n");
+}
+
+/**
+ * Print channel's details in the console with their programs
+ * @param channel The channel to print
  * @return void
  * */
-void print(struct node **first, int order) {
-    struct node *temp = *first;
-    int position = 1;
+void printChannelWithPrograms(struct tvChannel *channel) {
+    printf("╔════════╦══════════════╗\n");
+    printf("║ %-7s║%-15s║\n", "Number", "Channel name");
+    printf("╠════════╬══════════════║\n");
+    printf("║ %-7d║%-15s║\n", channel->number, channel->name);
+    printf("╚════════╩══════════════╝\n");
+
+    struct tvProgram *temp = channel->firstProgram;
     if (temp == NULL) {
-        printf("The linked list is empty\n");
+        printf("There's no programs\n");
         return;
     }
-    if (order == 0) {
-        printf("Printing the linked list in ASC order\n");
-
-        printf("╔════╦═══════════════╦═══════════════╦═══════════════╦═══════════════╦══════════════════════════════╦══════════╗\n");
-        printf("║ %-3s║%-15s║%-15s║%-15s║%-15s║%-30s║%-10s║\n", "Pos", "Name", "Surname", "Phone", "WhatsApp", "Email", "Status");
-        printf("╠════╬═══════════════╬═══════════════╬═══════════════╬═══════════════╬══════════════════════════════╬══════════║\n");
-        while (temp != NULL) {
-            if (temp->next == NULL) {
-                printf("║ %-3d║%-15s║%-15s║%-15s║%-15s║%-30s║%-10s║\n", position, temp->name, temp->surname, temp->phone, temp->whatsApp, temp->email, temp->status);
-                printf("╚════╩═══════════════╩═══════════════╩═══════════════╩═══════════════╩══════════════════════════════╩══════════╝\n");
-            } else {
-                printf("║ %-3d║%-15s║%-15s║%-15s║%-15s║%-30s║%-10s║\n", position, temp->name, temp->surname, temp->phone, temp->whatsApp, temp->email, temp->status);
-            }
-            temp = temp->next;
-            position++;
-        }
-    } else {
-        temp = findNodeAtPosition(first, counterChannels(first));
-        printf("Printing the linked list in DESC order\n");
-        printf("╔════╦═══════════════╦═══════════════╦═══════════════╦═══════════════╦══════════════════════════════╦══════════╗\n");
-        printf("║ %-3s║%-15s║%-15s║%-15s║%-15s║%-30s║%-10s║\n", "Pos", "Name", "Surname", "Phone", "WhatsApp", "Email", "Status");
-        printf("╠════╬═══════════════╬═══════════════╬═══════════════╬═══════════════╬══════════════════════════════╬══════════║\n");
-        while (temp != NULL) {
-            if (temp->prev == NULL) {
-                printf("║ %-3d║%-15s║%-15s║%-15s║%-15s║%-30s║%-10s║\n", position, temp->name, temp->surname, temp->phone, temp->whatsApp, temp->email, temp->status);
-                printf("╚════╩═══════════════╩═══════════════╩═══════════════╩═══════════════╩══════════════════════════════╩══════════╝\n");
-            } else {
-                printf("║ %-3d║%-15s║%-15s║%-15s║%-15s║%-30s║%-10s║\n", position, temp->name, temp->surname, temp->phone, temp->whatsApp, temp->email, temp->status);
-            }
-            temp = temp->prev;
-            position++;
-        }
-    }
-
+    printf("Programs:\n");
+    printf("╔══════════╦═══════════════╦═════════╗\n");
+    printf("║ %-9s║%-15s║%-9s║\n", "Time slot", "Program name", "Duration");
+    printf("╠══════════╬═══════════════╬═════════╣\n");
+    do {
+        printf("║ %-9s║%-15s║%-9d║\n", temp->timeSlot, temp->name, temp->duration);
+        temp = temp->next;
+    } while (temp != NULL);
+    printf("╚══════════╩═══════════════╩═════════╝\n");
 }
 
-int comparteString(char string1[30], char string2[30]) {
-    int i = 0;
-    for (i = 0; i < 30; i++) {
-        printf("String1: %c\n", string1[i]);
-        printf("String2: %c\n", string2[i]);
-        if (string1[i] != string2[i]) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-/*
- * Search a channel in the linked list by name or number
+/**
+ * Search a channel in the circular doubly linked list
  * @param first The pointer to the first channel
  * @param name The name of the channel to find
  * @param number The number of the channel to find
- * @return struct node* The node found in the linked list
+ * @return struct tvChannel* The channel found or NULL if it was not found
  * */
 struct tvChannel *searchChannel(struct tvChannel **first, char name[30], int number) {
     struct tvChannel *temp = *first;
@@ -369,7 +505,7 @@ struct tvChannel *searchChannel(struct tvChannel **first, char name[30], int num
         return NULL;
     }
     do {
-        if (comparteString(temp->name, name) == 1 || temp->number == number) {
+        if ((strcmp(temp->name, name) == 0) || (temp->number == number)) {
             return temp;
         }
         temp = temp->next;
@@ -377,7 +513,7 @@ struct tvChannel *searchChannel(struct tvChannel **first, char name[30], int num
     return NULL;
 }
 
-/*
+/**
  * Clear the screen
  * @return void
  * */
@@ -389,7 +525,7 @@ void clearScreen() {
 #endif
 }
 
-/*
+/**
  * Delay the program
  * @return void
  * */
@@ -402,7 +538,7 @@ void delay() {
 }
 
 
-/*
+/**
  * Find a channel at a given position in the guide
  * @param position The position of the channel to find
  * @return struct tvChannel* The channel at the given position
@@ -421,12 +557,12 @@ struct tvChannel *findChannelAtPosition(struct tvChannel **first, int position) 
     return temp;
 }
 
-/*
+/**
  * Count the number of channels
  * @param first The pointer to the first channel
  * @return int The number of channels
  * */
-int counterChannels(struct node **first) {
+int counterChannels(struct tvChannel **first) {
     struct tvChannel *temp = *first;
     int counter = 0;
     //Take into account that the linked list is circular and the start point is the head
@@ -435,4 +571,73 @@ int counterChannels(struct node **first) {
         temp = temp->next;
     } while (temp != *first);
     return counter;
+}
+
+
+/**
+ * Remove a channel from the list of channels
+ * @param first The pointer to the first channel
+ * @param number The number of the channel to remove
+ * @return void
+ * */
+void removeChannel(struct tvChannel **first, int number) {
+    struct tvChannel *channel = searchChannel(first, "", number);
+    if (channel == NULL) {
+        printf("The channel was not found\n");
+        delay();
+        return;
+    }
+    deleteProgramList(&channel->firstProgram);
+    if (channel->next == channel) {
+        free(channel);
+        *first = NULL;
+    } else {
+        channel->prev->next = channel->next;
+        channel->next->prev = channel->prev;
+        if (channel == *first) {
+            *first = channel->next;
+        }
+        free(channel);
+    }
+}
+
+/**
+ * Print all channels in the linked list
+ * @param first The pointer to the first channel
+ * @return void
+ * */
+void printAllChannels(struct tvChannel **first, int printPrograms) {
+    struct tvChannel *temp = *first;
+    if (temp == NULL) {
+        printf("There's no channels\n");
+        delay();
+        return;
+    }
+    do {
+        if (printPrograms) {
+            printChannelWithPrograms(temp);
+        } else {
+            printChannel(temp);
+        }
+        temp = temp->next;
+    } while (temp != *first);
+}
+
+/**
+ * Verify if channel number exits 
+ * @param first The pointer to the first channel
+ * @param number The number of the channel to verify
+*/
+int verifyChannelNumber(struct tvChannel **first, int number){
+    struct tvChannel *temp = *first;
+    if (temp == NULL) {
+        return 0;
+    }
+    do {
+        if (temp->number == number) {
+            return 1;
+        }
+        temp = temp->next;
+    } while (temp != *first);
+    return 0;
 }
